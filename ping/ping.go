@@ -1,4 +1,4 @@
-package toddping
+package ping
 
 import (
 	"errors"
@@ -18,20 +18,6 @@ import (
 
 type PingTestlet struct {
 	testlets.BaseTestlet
-}
-
-func init() {
-
-	var pt = PingTestlet{}
-
-	// Ensure the RunFunction attribute is set correctly.
-	// This allows the underlying testlet infrastructure
-	// to know what function to call at runtime
-	pt.RunFunction = pt.RunTestlet
-
-	// This is important - register the name of this testlet
-	// (the name the user will use in a testrun definition)
-	testlets.Register("ping", &pt)
 }
 
 // RunTestlet implements the core logic of the testlet. Don't worry about running asynchronously,
