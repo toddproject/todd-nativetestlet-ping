@@ -27,6 +27,7 @@ func (p PingTestlet) RunTestlet(target string, args []string, kill chan (bool)) 
 	// Get number of pings
 	count := 3 //TODO(mierdin): need to parse from 'args', or if omitted, use a default value
 
+	log.Error(target)
 	log.Error(args)
 
 	var latencies []float32
