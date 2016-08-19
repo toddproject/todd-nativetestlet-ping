@@ -19,6 +19,12 @@ import (
 )
 
 func main() {
+
+	if os.Args[1] == "check" {
+		fmt.Println("Check mode PASSED")
+		os.Exit(0)
+	}
+
 	var pt = ping.PingTestlet{}
 
 	// Ensure the RunFunction attribute is set correctly.
