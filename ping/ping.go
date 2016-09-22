@@ -13,22 +13,28 @@ import (
 	"golang.org/x/net/ipv4"
 	"golang.org/x/net/ipv6"
 
-	"github.com/Mierdin/todd/agent/testing/testlets"
+	"github.com/Mierdin/todd/agent/testing"
 )
 
 type PingTestlet struct {
-	testlets.BaseTestlet
+	testing.BaseTestlet
 }
 
 // RunTestlet implements the core logic of the testlet. Don't worry about running asynchronously,
 // that's handled by the infrastructure.
-func (p PingTestlet) RunTestlet(target string, args []string, kill chan (bool)) (map[string]string, error) {
+func (p PingTestlet) Run(target string, args []string, timeout int) (map[string]string, error) {
+
+	// Establish system compatbility
+	switch runtime.GOOS {
+	case "darwin":
+	case "linux":
+		//log.Warn("Linux detected - you may need to adjust the net.ipv4.ping_group_range kernel state")
+	default:
+		//return 0, false, errors.New(fmt.Sprintf("ping testlet not supported on %s", runtime.GOOS))
+	}
 
 	// Get number of pings
 	count := 3 //TODO(mierdin): need to parse from 'args', or if omitted, use a default value
-
-	log.Error(target)
-	log.Error(args)
 
 	var latencies []float32
 	var replies int
@@ -36,32 +42,20 @@ func (p PingTestlet) RunTestlet(target string, args []string, kill chan (bool)) 
 	// Execute ping once per count
 	i := 0
 	for i < count {
-		select {
-		case <-kill:
-			// Terminating early; return empty metrics
-			return map[string]string{}, nil
-		default:
 
-			//log.Debugf("Executing ping #%d", i)
+		latency, replyReceived, _ := PingNative(target)
+		//TODO(mierdin): handle err
 
-			// USE count
+		log.Infof("Reply received after %f ms", latency)
 
-			// Mocked ping logic
-			latency, replyReceived, _ := PingNative(target)
-			//TODO handle err
+		latencies = append(latencies, latency)
 
-			log.Errorf("Reply received after %f ms", latency)
-
-			latencies = append(latencies, latency)
-
-			if replyReceived {
-				replies += 1
-			}
-
-			i += 1
-			time.Sleep(1000 * time.Millisecond)
-
+		if replyReceived {
+			replies += 1
 		}
+
+		i += 1
+		time.Sleep(1000 * time.Millisecond)
 	}
 
 	// Calculate metrics
@@ -86,26 +80,19 @@ func (p PingTestlet) RunTestlet(target string, args []string, kill chan (bool)) 
 // error - nil if everything went well
 func PingNative(target string) (float32, bool, error) {
 
-	// Establish system compatbility
-	switch runtime.GOOS {
-	case "darwin":
-	case "linux":
-		log.Warn("Linux detected - you may need to adjust the net.ipv4.ping_group_range kernel state")
-	default:
-		return 0, false, errors.New(fmt.Sprintf("ping testlet not supported on %s", runtime.GOOS))
-	}
-
 	var proto, addy string
 	var replyproto int
 
 	// Detect v4/v6
 	ip := net.ParseIP(target)
+
+	// Was "udp4" and "udp6" before I decided to go the "capabilities" route
 	if ip.To4() != nil {
-		proto = "udp4"
+		proto = "ip4:icmp"
 		addy = "0.0.0.0"
 		replyproto = 1
 	} else {
-		proto = "udp6"
+		proto = "ip6:icmp"
 		addy = "::"
 		// replyproto = 129
 		replyproto = 58
@@ -114,8 +101,12 @@ func PingNative(target string) (float32, bool, error) {
 	// Start listening for response on all interfaces
 	c, err := icmp.ListenPacket(proto, addy)
 	if err != nil {
+		log.Error("This testlet likely doesn't have cap_net_raw permissions. Please install this testlet according to the documentation.")
 		log.Fatal(err)
+	} else {
+		log.Debug("Opened Socket (listen)")
 	}
+
 	// time.Sleep(time.Second * 100000)
 	defer c.Close()
 
@@ -144,7 +135,9 @@ func PingNative(target string) (float32, bool, error) {
 		log.Error(err)
 		return 0.0, false, nil
 	}
-	if _, err := c.WriteTo(wb, &net.UDPAddr{IP: net.ParseIP(target)}); err != nil {
+
+	// Was net.UDPAddr before I decided to go the "capabilities" route
+	if _, err := c.WriteTo(wb, &net.IPAddr{IP: net.ParseIP(target)}); err != nil {
 		log.Error(err)
 		return 0.0, false, nil
 	}

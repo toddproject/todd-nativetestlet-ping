@@ -7,13 +7,9 @@
 	],
 	"Deps": [
 		{
-			"ImportPath": "github.com/Mierdin/todd-nativetestlet-ping/testlet",
-			"Rev": "f65f86b12c73e399f8e46644cfea334bb78e6706"
-		},
-		{
-			"ImportPath": "github.com/Mierdin/todd/agent/testing/testlets",
-			"Comment": "alpha-demo-162-g7909ab4",
-			"Rev": "7909ab4a2e7280ead16f18cfb576ffe22d6d7ae2"
+			"ImportPath": "github.com/Mierdin/todd/agent/testing",
+			"Comment": "alpha-demo-178-g7408315",
+			"Rev": "74083159887b48579f56a0f872bb36b56edc0b39"
 		},
 		{
 			"ImportPath": "github.com/Sirupsen/logrus",

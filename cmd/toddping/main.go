@@ -14,47 +14,29 @@ import (
 	"os"
 
 	//cli "github.com/codegangsta/cli"
-	//"github.com/Mierdin/todd/agent/testing/testlets"
+
 	"github.com/toddproject/todd-nativetestlet-ping/ping"
 )
 
 func main() {
 
 	if os.Args[1] == "check" {
+
+		//TODO(mierdin): Need to do a test ping
+
 		fmt.Println("Check mode PASSED")
 		os.Exit(0)
 	}
 
 	var pt = ping.PingTestlet{}
 
-	// Ensure the RunFunction attribute is set correctly.
-	// This allows the underlying testlet infrastructure
-	// to know what function to call at runtime
-	pt.RunFunction = pt.RunTestlet
-
-	// This is important - register the name of this testlet
-	// (the name the user will use in a testrun definition)
-	//testlets.Register("ping", &pt)
-
-	// nativeTestlet, err := testlets.NewTestlet(tr.Testlet)
-	// if err != nil {
-	// 	//TODO(mierdin) do something
-	// }
-
-	// metrics, err := nativeTestlet.Run("8.8.8.8", []string{"-c 10", "-s"}, ett.TimeLimit)
-	// //log.Error(nativeTestlet.RunFunction)
-	// if err != nil {
-	// 	log.Errorf("Testlet <TESTLET> completed with error '%s'", err)
-	// 	gatheredData[thisTarget] = "error"
-	// }
-
-	var testchan chan bool
-
-	metrics, err := pt.RunTestlet(os.Args[1], os.Args[2:], testchan)
+	// TODO accept timeout param
+	metrics, err := pt.Run(os.Args[1], os.Args[2:], 30)
 	if err != nil {
-		//fmt.Errorf("Testlet <TESTLET> completed with error '%s'", err)
+		fmt.Errorf("Testlet <TESTLET> completed with error '%s'", err)
 		//gatheredData[thisTarget] = "error"
 	}
+
 	// The metrics infrastructure requires that we collect metrics as a JSON string
 	// (which is a result of building non-native testlets in early versions of ToDD)
 	// So let's convert, and add to gatheredData
