@@ -2,10 +2,9 @@ package ping
 
 import (
 	"errors"
-	"fmt"
 	"net"
 	"os"
-	"runtime"
+	"strings"
 	"time"
 
 	log "github.com/Sirupsen/logrus"
@@ -22,19 +21,11 @@ type PingTestlet struct {
 
 // RunTestlet implements the core logic of the testlet. Don't worry about running asynchronously,
 // that's handled by the infrastructure.
-func (p PingTestlet) Run(target string, args []string, timeout int) (map[string]string, error) {
-
-	// Establish system compatbility
-	switch runtime.GOOS {
-	case "darwin":
-	case "linux":
-		//log.Warn("Linux detected - you may need to adjust the net.ipv4.ping_group_range kernel state")
-	default:
-		//return 0, false, errors.New(fmt.Sprintf("ping testlet not supported on %s", runtime.GOOS))
-	}
+func (p PingTestlet) Run(target string, args []string, timeout int) (map[string]float32, error) {
 
 	// Get number of pings
 	count := 3 //TODO(mierdin): need to parse from 'args', or if omitted, use a default value
+	// TODO(Mierdin): Definitely do this soon, so you can set it to 1 for check mode
 
 	var latencies []float32
 	var replies int
@@ -43,10 +34,14 @@ func (p PingTestlet) Run(target string, args []string, timeout int) (map[string]
 	i := 0
 	for i < count {
 
-		latency, replyReceived, _ := PingNative(target)
+		latency, replyReceived, _ := PingNative(target, count)
 		//TODO(mierdin): handle err
 
-		log.Infof("Reply received after %f ms", latency)
+		if replyReceived {
+			log.Infof("Reply received from %s after %f ms", target, latency)
+		} else {
+			log.Info("Request timed out.")
+		}
 
 		latencies = append(latencies, latency)
 
@@ -66,9 +61,14 @@ func (p PingTestlet) Run(target string, args []string, timeout int) (map[string]
 	avg_latency_ms := latencyTotal / float32(len(latencies))
 	packet_loss := (float32(count) - float32(replies)) / float32(count)
 
-	return map[string]string{
-		"avg_latency_ms": fmt.Sprintf("%.2f", avg_latency_ms),
-		"packet_loss":    fmt.Sprintf("%.2f", packet_loss),
+	// return map[string]string{
+	// 	"avg_latency_ms": fmt.Sprintf("%.2f", avg_latency_ms),
+	// 	"packet_loss":    fmt.Sprintf("%.2f", packet_loss),
+	// }, nil
+
+	return map[string]float32{
+		"avg_latency_ms": avg_latency_ms,
+		"packet_loss":    packet_loss,
 	}, nil
 
 }
@@ -78,34 +78,48 @@ func (p PingTestlet) Run(target string, args []string, timeout int) (map[string]
 // float32 - response time in milliseconds
 // bool - true if reply recieved before timeout
 // error - nil if everything went well
-func PingNative(target string) (float32, bool, error) {
+func PingNative(target string, count int) (float32, bool, error) {
 
 	var proto, addy string
-	var replyproto int
+	var requestproto, replyproto int
 
 	// Detect v4/v6
 	ip := net.ParseIP(target)
 
+	// TODO(mierdin): Need to fall back on udp ping if the icmp approach doesn't work.
 	// Was "udp4" and "udp6" before I decided to go the "capabilities" route
+
 	if ip.To4() != nil {
 		proto = "ip4:icmp"
 		addy = "0.0.0.0"
+		requestproto = 8
 		replyproto = 1
 	} else {
-		proto = "ip6:icmp"
+		// proto = "ip6:icmp"
+		proto = "ip6:ipv6-icmp"
 		addy = "::"
 		// replyproto = 129
+		requestproto = 128
 		replyproto = 58
 	}
 
 	// Start listening for response on all interfaces
+	// This will attempt a raw ICMP socket first, then fall back to UDP
 	c, err := icmp.ListenPacket(proto, addy)
 	if err != nil {
-		log.Error("This testlet likely doesn't have cap_net_raw permissions. Please install this testlet according to the documentation.")
-		log.Fatal(err)
-	} else {
-		log.Debug("Opened Socket (listen)")
+		if proto == "ip4:icmp" {
+			proto = "udp4"
+		} else if proto == "ip6:ipv6-icmp" {
+			proto = "udp6"
+		}
+		c, err = icmp.ListenPacket(proto, addy)
+		if err != nil {
+			log.Error("Failed to open a socket. Please refer to the documentation for system compatibility")
+			log.Fatal(err)
+		}
 	}
+
+	log.Debugf("Opened %s socket", proto)
 
 	// time.Sleep(time.Second * 100000)
 	defer c.Close()
@@ -115,11 +129,14 @@ func PingNative(target string) (float32, bool, error) {
 	// TODO(mierdin): Make this configurable via args
 	c.SetReadDeadline(time.Now().Add(3 * time.Second))
 
-	// Construct and send ICMP echo
+	log.Debug(requestproto)
+
+	// Construct ICMP echo
 	wm := icmp.Message{
+		// Code: requestproto,
 		Code: 0,
 		Body: &icmp.Echo{
-			ID: os.Getpid() & 0xffff, Seq: 1,
+			ID: os.Getpid() & 0xffff, Seq: count,
 			Data: []byte("hanshotfirst"),
 		},
 	}
@@ -136,10 +153,16 @@ func PingNative(target string) (float32, bool, error) {
 		return 0.0, false, nil
 	}
 
-	// Was net.UDPAddr before I decided to go the "capabilities" route
-	if _, err := c.WriteTo(wb, &net.IPAddr{IP: net.ParseIP(target)}); err != nil {
-		log.Error(err)
-		return 0.0, false, nil
+	if strings.Contains(proto, "udp") {
+		if _, err := c.WriteTo(wb, &net.UDPAddr{IP: net.ParseIP(target)}); err != nil {
+			log.Error(err)
+			return 0.0, false, nil
+		}
+	} else {
+		if _, err := c.WriteTo(wb, &net.IPAddr{IP: net.ParseIP(target)}); err != nil {
+			log.Error(err)
+			return 0.0, false, nil
+		}
 	}
 
 	// Is this the right place?
@@ -160,17 +183,44 @@ func PingNative(target string) (float32, bool, error) {
 		log.Fatal(err)
 	}
 
-	switch rm.Type {
-	case ipv4.ICMPTypeEchoReply:
-		// This is an expected response type for ICMPv4 requests
-	case ipv6.ICMPTypeEchoReply:
-		// This is an expected response type for ICMPv6 requests, but....
-	case ipv6.ICMPTypeEchoRequest:
-		// ...this is what we end up seeing instead. TODO(mierdin): Dig into
-		// this a bit more and see if this is a bug in the library
-	default:
-		log.Printf("ERROR. Got %+v; want echo reply", rm)
-		return 0, false, errors.New("Received something other than an echo reply")
+	// This block performs triage on incoming requests
+	//
+	// TODO(mierdin): This has been a source of a lot of confusion. You will notice that
+	// both requests and responses are in both the IPv4 and IPv6 blocks. This is because
+	// rm.Type doesn't always seem to equal what's in the response packet (I checked with
+	// (tcpdump)
+	//
+	// For instance:
+	//
+	// 	  case ipv6.ICMPTypeEchoReply:
+	// 	  // This is an expected response type for ICMPv6 requests, and the packet contains
+	//    // this code, but...
+	//    case ipv6.ICMPTypeEchoRequest:
+	// 	  // ...this is what we end up seeing instead, which is of course not the right code
+	//    // for a response.
+	//
+	// Need to figure out what's causing this - it could be a bug in the library.
+	if ip.To4() != nil {
+
+		switch rm.Type {
+		case ipv4.ICMPTypeEcho:
+		case ipv4.ICMPTypeEchoReply:
+			// This is an expected response type for ICMPv4 requests
+		default:
+			log.Printf("ERROR. Got %+v; want IPV4 echo reply", rm)
+			return 0, false, errors.New("Received something other than an IPV4 echo reply")
+		}
+	} else {
+		switch rm.Type {
+		case ipv6.ICMPTypeEchoReply:
+			// This is an expected response type for ICMPv6 requests, but....
+		case ipv6.ICMPTypeEchoRequest:
+			// ...this is what we end up seeing instead. TODO(mierdin): Dig into
+			// this a bit more and see if this is a bug in the library
+		default:
+			log.Printf("ERROR. Got %+v; want IPV6 echo reply", rm)
+			return 0, false, errors.New("Received something other than an IPV6 echo reply")
+		}
 	}
 
 	// Return the latency in milliseconds, and acknowledge that a reply was received

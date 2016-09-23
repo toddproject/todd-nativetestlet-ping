@@ -10,22 +10,77 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
+	"runtime"
 
+	log "github.com/Sirupsen/logrus"
 	//cli "github.com/codegangsta/cli"
 
 	"github.com/toddproject/todd-nativetestlet-ping/ping"
 )
 
+var (
+	testletName = "ping"
+)
+
+func checkSystem() error {
+	// Establish system compatbility
+	switch runtime.GOOS {
+	case "darwin":
+	case "linux":
+		log.Warn("Linux detected - please ensure that socket capabilities have been set")
+	default:
+		log.Error(fmt.Sprintf("'%s' testlet not supported on %s", testletName, runtime.GOOS))
+		return errors.New("unsupported platform")
+	}
+	return nil
+}
+
+func check() error {
+	err := checkSystem()
+	if err != nil {
+		os.Exit(1)
+	}
+
+	loopbacks := []string{
+		"::1",
+		"127.0.0.1",
+	}
+
+	var pt = ping.PingTestlet{}
+
+	for i := range loopbacks {
+		metrics, err := pt.Run(loopbacks[i], []string{""}, 1)
+
+		loss := float64(metrics["packet_loss"])
+
+		if err != nil {
+			log.Error(err)
+			return err
+		}
+		if loss > 0.0 {
+			log.Error("packet loss on loopback")
+			return errors.New("check failed")
+		}
+	}
+
+	return nil
+}
+
 func main() {
 
+	// Run this testlet's system check
 	if os.Args[1] == "check" {
-
-		//TODO(mierdin): Need to do a test ping
-
-		fmt.Println("Check mode PASSED")
-		os.Exit(0)
+		err := check()
+		if err != nil {
+			fmt.Println("Check mode FAILED")
+			os.Exit(1)
+		} else {
+			fmt.Println("Check mode PASSED")
+			os.Exit(0)
+		}
 	}
 
 	var pt = ping.PingTestlet{}
@@ -33,7 +88,9 @@ func main() {
 	// TODO accept timeout param
 	metrics, err := pt.Run(os.Args[1], os.Args[2:], 30)
 	if err != nil {
-		fmt.Errorf("Testlet <TESTLET> completed with error '%s'", err)
+		errorMessage := fmt.Sprintf("Native testlet '%s' completed with error '%s'", testletName, err)
+		log.Error(errorMessage)
+		fmt.Println(errorMessage)
 		//gatheredData[thisTarget] = "error"
 	}
 

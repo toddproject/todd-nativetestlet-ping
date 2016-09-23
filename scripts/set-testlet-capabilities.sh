@@ -14,4 +14,4 @@ set -o pipefail
 : ${GOPATH:?"Please ensure GOPATH is set, and run sudo with -E when performing 'make install'"}
 
 # Enable raw socket capabilities on toddping
-setcap cap_net_raw+ep $GOPATH/bin/toddping
+setcap cap_net_raw+ep $GOPATH/bin/toddping || echo "Unable to setcap. May experience problems with some testlets, depending on system"
