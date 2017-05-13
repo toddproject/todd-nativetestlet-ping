@@ -19,13 +19,14 @@ type PingTestlet struct {
 	testing.BaseTestlet
 }
 
-// RunTestlet implements the core logic of the testlet. Don't worry about running asynchronously,
-// that's handled by the infrastructure.
-func (p PingTestlet) Run(target string, args []string, timeout int) (map[string]float32, error) {
+// RunTestlet implements the general workflow of the testlet. Lower-level functionality is implemented by the downstream function;
+// this function focuses more on things like executing the right number of pings, and calculating metrics.
+// timeout is a generic arg for all testlets (primarily for server-style testlets)
+func (p PingTestlet) Run(target string, args map[string]interface{}, timeout int) (map[string]float32, error) {
 
-	// Get number of pings
-	count := 3 //TODO(mierdin): need to parse from 'args', or if omitted, use a default value
-	// TODO(Mierdin): Definitely do this soon, so you can set it to 1 for check mode
+	// Get args
+	count := args["count"].(int)
+	icmpTimeout := args["icmpTimeout"].(int)
 
 	var latencies []float32
 	var replies int
@@ -34,7 +35,7 @@ func (p PingTestlet) Run(target string, args []string, timeout int) (map[string]
 	i := 0
 	for i < count {
 
-		latency, replyReceived, _ := PingNative(target, count)
+		latency, replyReceived, _ := PingNative(target, count, icmpTimeout)
 		//TODO(mierdin): handle err
 
 		if replyReceived {
@@ -78,7 +79,7 @@ func (p PingTestlet) Run(target string, args []string, timeout int) (map[string]
 // float32 - response time in milliseconds
 // bool - true if reply recieved before timeout
 // error - nil if everything went well
-func PingNative(target string, count int) (float32, bool, error) {
+func PingNative(target string, count, icmpTimeout int) (float32, bool, error) {
 
 	var proto, addy string
 	var requestproto, replyproto int
@@ -124,10 +125,9 @@ func PingNative(target string, count int) (float32, bool, error) {
 	// time.Sleep(time.Second * 100000)
 	defer c.Close()
 
-	// Set the timeout to 3 seconds so the socket doesn't block forever,
-	// but there's enough time for a reply
-	// TODO(mierdin): Make this configurable via args
-	c.SetReadDeadline(time.Now().Add(3 * time.Second))
+	// Set the timeout so the socket doesn't block forever
+	// (default is 3 seconds)
+	c.SetReadDeadline(time.Now().Add(time.Duration(icmpTimeout) * time.Second))
 
 	log.Debug(requestproto)
 
