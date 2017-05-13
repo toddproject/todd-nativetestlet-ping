@@ -49,21 +49,26 @@ func check() error {
 		"127.0.0.1",
 	}
 
-	var pt = ping.PingTestlet{}
+	successes := 0
 
+	var pt = ping.PingTestlet{}
 	for i := range loopbacks {
 		metrics, err := pt.Run(loopbacks[i], []string{""}, 1)
+		if err != nil {
+			log.Error("Problem sending test echo request: %v", err)
+			continue
+		}
 
 		loss := float64(metrics["packet_loss"])
-
-		if err != nil {
-			log.Error(err)
-			return err
-		}
 		if loss > 0.0 {
-			log.Error("packet loss on loopback")
-			return errors.New("check failed")
+			log.Error("Unexpected packet loss on loopback")
+			continue
 		}
+		successes++
+	}
+
+	if successes == 0 {
+		return errors.New("Not enough successful pings. Check failed.")
 	}
 
 	return nil
