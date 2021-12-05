@@ -16,7 +16,7 @@ import (
 	"runtime"
 
 	log "github.com/Sirupsen/logrus"
-	//cli "github.com/codegangsta/cli"
+	cli "github.com/codegangsta/cli"
 
 	"github.com/toddproject/todd-nativetestlet-ping/ping"
 )
@@ -53,7 +53,10 @@ func check() error {
 
 	var pt = ping.PingTestlet{}
 	for i := range loopbacks {
-		metrics, err := pt.Run(loopbacks[i], []string{""}, 1)
+		metrics, err := pt.Run(loopbacks[i], map[string]interface{}{
+			"count":       1,
+			"icmpTimeout": 3,
+		}, 1)
 		if err != nil {
 			log.Error("Problem sending test echo request: %v", err)
 			continue
@@ -76,36 +79,77 @@ func check() error {
 
 func main() {
 
-	// Run this testlet's system check
-	if os.Args[1] == "check" {
-		err := check()
-		if err != nil {
-			fmt.Println("Check mode FAILED")
-			os.Exit(1)
-		} else {
-			fmt.Println("Check mode PASSED")
-			os.Exit(0)
+	app := cli.NewApp()
+	app.Name = "toddping"
+	app.Version = "v0.1.0"
+	app.Usage = "A testlet for ICMP echos (ping)"
+
+	var count, icmpTimeout int
+
+	// global level flags
+	app.Flags = []cli.Flag{
+		cli.IntFlag{
+			Name:        "c, count",
+			Usage:       "number of pings to send",
+			Value:       3,
+			Destination: &count,
+		},
+		cli.IntFlag{
+			Name:        "t, timeout",
+			Usage:       "timeout for a single request",
+			Value:       3,
+			Destination: &icmpTimeout,
+		},
+	}
+
+	// ToDD Commands
+	app.Commands = []cli.Command{
+
+		// "todd agents ..."
+		{
+			Name:  "check",
+			Usage: "Show ToDD agent information",
+			Action: func(c *cli.Context) {
+				err := check()
+				if err != nil {
+					fmt.Println("Check mode FAILED")
+					os.Exit(1)
+				} else {
+					fmt.Println("Check mode PASSED")
+					os.Exit(0)
+				}
+			},
+		},
+	}
+
+	app.Action = func(c *cli.Context) {
+
+		var pt = ping.PingTestlet{}
+
+		argMap := map[string]interface{}{
+			"count":       count,
+			"icmpTimeout": icmpTimeout,
 		}
+
+		metrics, err := pt.Run(os.Args[1], argMap, 30)
+		if err != nil {
+			errorMessage := fmt.Sprintf("Native testlet '%s' completed with error '%s'", testletName, err)
+			log.Error(errorMessage)
+			fmt.Println(errorMessage)
+			//gatheredData[thisTarget] = "error"
+			os.Exit(1)
+		}
+
+		// The metrics infrastructure requires that we collect metrics as a JSON string
+		// (which is a result of building non-native testlets in early versions of ToDD)
+		// So let's convert, and add to gatheredData
+		metrics_json, err := json.Marshal(metrics)
+		if err != nil {
+			//TODO(mierdin) do something
+		}
+		//gatheredData[thisTarget] = string(metrics_json)
+		fmt.Println(string(metrics_json))
 	}
 
-	var pt = ping.PingTestlet{}
-
-	// TODO accept timeout param
-	metrics, err := pt.Run(os.Args[1], os.Args[2:], 30)
-	if err != nil {
-		errorMessage := fmt.Sprintf("Native testlet '%s' completed with error '%s'", testletName, err)
-		log.Error(errorMessage)
-		fmt.Println(errorMessage)
-		//gatheredData[thisTarget] = "error"
-	}
-
-	// The metrics infrastructure requires that we collect metrics as a JSON string
-	// (which is a result of building non-native testlets in early versions of ToDD)
-	// So let's convert, and add to gatheredData
-	metrics_json, err := json.Marshal(metrics)
-	if err != nil {
-		//TODO(mierdin) do something
-	}
-	//gatheredData[thisTarget] = string(metrics_json)
-	fmt.Println(string(metrics_json))
+	app.Run(os.Args)
 }
